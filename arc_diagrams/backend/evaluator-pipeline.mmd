@@ -1,0 +1,72 @@
+%% CiteGuard Evaluator Pipeline
+%% Last updated by ADR-0005 on 2026-04-18
+
+flowchart TB
+    subgraph Ingestion["Document Ingestion"]
+        Submit["POST /v1/documents<br/>or POST /v1/llm/proxy"]
+        Validate["Validate<br/>- 200KB limit<br/>- Pydantic schema<br/>- Idempotency check"]
+        Store["Store document<br/>in Postgres"]
+        AuditSubmit["Write audit_log<br/>event: document_submitted"]
+        Enqueue["Enqueue evaluator_run<br/>task to Redis/Arq"]
+    end
+
+    subgraph Worker["Arq Worker"]
+        Dequeue["Dequeue task"]
+        Orchestrator["EvaluatorOrchestrator"]
+    end
+
+    subgraph Evaluators["Parallel Evaluator Fan-Out (asyncio.gather)"]
+        E1["Citation Existence<br/>v1.0.0<br/>timeout: 10s"]
+        E2["Quote Verification<br/>v1.0.0<br/>timeout: 10s"]
+        E3["Bluebook Format<br/>v1.0.0<br/>timeout: 10s"]
+        E4["Judge Verification<br/>v1.0.0<br/>timeout: 10s"]
+        E5["Temporal Validity<br/>v1.0.0<br/>timeout: 10s"]
+    end
+
+    subgraph ExternalAPIs["External APIs"]
+        CL["CourtListener API<br/>+ Redis Cache"]
+        FJC["FJC Directory<br/>(Local Postgres)"]
+    end
+
+    subgraph Results["Results Processing"]
+        Collect["Collect FlagResults<br/>from all evaluators"]
+        WriteFlags["Write flags<br/>to Postgres"]
+        AuditEval["Write audit_log<br/>event: evaluation_complete"]
+        UpdateStatus["Update document.status<br/>pending → in_review"]
+        Alert["Check for CRITICAL flags<br/>→ trigger alerts"]
+    end
+
+    subgraph ErrorHandling["Error Handling"]
+        Timeout["Evaluator timeout<br/>(10s exceeded)"]
+        ExternalFail["External API failure<br/>(CourtListener down)"]
+        Advisory["Convert to ADVISORY flag<br/>with explanation"]
+    end
+
+    Submit --> Validate --> Store --> AuditSubmit --> Enqueue
+    Enqueue --> Dequeue --> Orchestrator
+
+    Orchestrator --> E1
+    Orchestrator --> E2
+    Orchestrator --> E3
+    Orchestrator --> E4
+    Orchestrator --> E5
+
+    E1 --> CL
+    E2 --> CL
+    E4 --> FJC
+    E5 --> CL
+
+    E1 --> Collect
+    E2 --> Collect
+    E3 --> Collect
+    E4 --> Collect
+    E5 --> Collect
+
+    Collect --> WriteFlags --> AuditEval --> UpdateStatus --> Alert
+
+    E1 -.-> Timeout
+    E2 -.-> Timeout
+    E1 -.-> ExternalFail
+    Timeout --> Advisory
+    ExternalFail --> Advisory
+    Advisory --> Collect

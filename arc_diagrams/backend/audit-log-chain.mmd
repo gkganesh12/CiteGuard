@@ -1,0 +1,49 @@
+%% CiteGuard Audit Log Hash Chain Construction
+%% Last updated by ADR-0003 on 2026-04-18
+
+sequenceDiagram
+    participant Caller as State-Changing Operation
+    participant ALS as AuditLogService
+    participant DB as Postgres (audit_log)
+    participant Hasher as SHA-256 Hasher
+
+    Note over Caller, DB: Every state change writes audit entry in SAME transaction
+
+    Caller->>ALS: append(event_type, actor, payload, firm_id)
+
+    ALS->>DB: SELECT this_hash FROM audit_log<br/>WHERE firm_id = :firm_id<br/>ORDER BY created_at DESC LIMIT 1
+
+    alt First entry for firm (genesis)
+        DB-->>ALS: NULL (no prior row)
+        ALS->>Hasher: sha256("")
+        Hasher-->>ALS: genesis_hash
+        Note over ALS: prior_hash = sha256("")
+    else Subsequent entry
+        DB-->>ALS: prior_row.this_hash
+        Note over ALS: prior_hash = prior_row.this_hash
+    end
+
+    ALS->>ALS: canonical_json(payload)<br/>- sorted keys<br/>- UTF-8 NFC normalized<br/>- stable numerics
+
+    ALS->>Hasher: sha256(prior_hash || canonical_json(payload))
+    Hasher-->>ALS: this_hash
+
+    ALS->>DB: INSERT INTO audit_log<br/>(id, firm_id, document_id,<br/>event_type, actor_user_id,<br/>payload, prior_hash, this_hash,<br/>created_at)
+
+    Note over DB: REVOKE UPDATE, DELETE on audit_log<br/>DB role prevents modification
+
+    ALS-->>Caller: audit_entry_id
+
+    Note over ALS, DB: Daily Verification Job
+
+    rect rgb(255, 240, 240)
+        ALS->>DB: SELECT * FROM audit_log<br/>WHERE firm_id = :firm_id<br/>ORDER BY created_at ASC
+        loop For each row
+            ALS->>Hasher: Recompute: sha256(prior_hash || canonical_json(payload))
+            Hasher-->>ALS: computed_hash
+            ALS->>ALS: Compare computed_hash == this_hash
+            alt Hash mismatch
+                ALS->>ALS: ALERT: P0 Incident<br/>Hash chain integrity violation
+            end
+        end
+    end

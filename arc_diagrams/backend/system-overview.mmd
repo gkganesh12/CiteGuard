@@ -1,0 +1,108 @@
+%% CiteGuard V1 System Overview
+%% Last updated by ADR-0001 on 2026-04-18
+
+graph TB
+    subgraph Clients["Client Layer"]
+        SDK["SDK<br/>(Python / Node.js)"]
+        Proxy["REST Proxy<br/>POST /v1/llm/proxy"]
+        WebUI["Web Dashboard<br/>(Next.js 14 / Vercel)"]
+    end
+
+    subgraph API["API Layer (FastAPI on Fly.io)"]
+        Gateway["API Gateway<br/>Auth + Rate Limit + Validation"]
+        DocRouter["Document Router<br/>POST /v1/documents"]
+        FlagRouter["Flag Router<br/>POST /v1/flags/:id/actions"]
+        AuditRouter["Audit Router<br/>POST /v1/documents/:id/export"]
+        UserRouter["User Router<br/>Team Management"]
+        AnalyticsRouter["Analytics Router<br/>GET /v1/analytics"]
+    end
+
+    subgraph Auth["Authentication"]
+        Clerk["Clerk<br/>JWT + Google OAuth"]
+        APIKeyAuth["API Key Auth<br/>bcrypt hashed"]
+    end
+
+    subgraph Workers["Worker Layer (Arq + Redis)"]
+        Redis["Redis<br/>Job Queue + Cache"]
+        EvalWorker["Evaluator Workers<br/>Parallel Fan-Out"]
+        PDFWorker["PDF Export Worker<br/>WeasyPrint"]
+        AlertWorker["Alert Worker<br/>Slack + Email"]
+        VerifyWorker["Hash Chain<br/>Verification Job"]
+    end
+
+    subgraph Evaluators["Evaluator Pipeline"]
+        Orchestrator["EvaluatorOrchestrator<br/>asyncio.gather"]
+        E1["Citation Existence<br/>v1.0.0"]
+        E2["Quote Verification<br/>v1.0.0"]
+        E3["Bluebook Format<br/>v1.0.0"]
+        E4["Judge Verification<br/>v1.0.0"]
+        E5["Temporal Validity<br/>v1.0.0"]
+    end
+
+    subgraph DataStores["Data Stores"]
+        Postgres["Postgres 16<br/>firms, users, documents,<br/>flags, audit_log, exports"]
+        ClickHouse["ClickHouse Cloud<br/>Traces + Telemetry"]
+        S3["S3 / Object Storage<br/>PDF Exports"]
+    end
+
+    subgraph External["External APIs"]
+        CourtListener["CourtListener API<br/>Opinions + Citations"]
+        FJC["FJC Directory<br/>Federal Judges"]
+    end
+
+    subgraph Integrations["Third-Party Services"]
+        Stripe["Stripe<br/>Billing + Metering"]
+        Sentry["Sentry<br/>Error Tracking"]
+        Slack["Slack<br/>Webhook Alerts"]
+        Email["Resend / Postmark<br/>Email Alerts"]
+        Cloudflare["Cloudflare<br/>CDN + WAF"]
+    end
+
+    SDK --> Gateway
+    Proxy --> Gateway
+    WebUI --> Cloudflare --> Gateway
+
+    Gateway --> Clerk
+    Gateway --> APIKeyAuth
+    Gateway --> DocRouter
+    Gateway --> FlagRouter
+    Gateway --> AuditRouter
+    Gateway --> UserRouter
+    Gateway --> AnalyticsRouter
+
+    DocRouter --> Postgres
+    DocRouter --> Redis
+    FlagRouter --> Postgres
+    AuditRouter --> Redis
+    UserRouter --> Postgres
+
+    Redis --> EvalWorker
+    Redis --> PDFWorker
+    Redis --> AlertWorker
+    Redis --> VerifyWorker
+
+    EvalWorker --> Orchestrator
+    Orchestrator --> E1
+    Orchestrator --> E2
+    Orchestrator --> E3
+    Orchestrator --> E4
+    Orchestrator --> E5
+
+    E1 --> CourtListener
+    E2 --> CourtListener
+    E4 --> FJC
+    E5 --> CourtListener
+
+    E1 --> Redis
+    E2 --> Redis
+
+    EvalWorker --> Postgres
+    PDFWorker --> Postgres
+    PDFWorker --> S3
+    AlertWorker --> Slack
+    AlertWorker --> Email
+    VerifyWorker --> Postgres
+
+    Gateway --> ClickHouse
+    Gateway --> Sentry
+    DocRouter --> Stripe

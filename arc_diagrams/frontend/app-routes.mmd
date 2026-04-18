@@ -1,0 +1,61 @@
+%% CiteGuard V1 Next.js App Router Route Tree
+%% Last updated by ADR-0001 on 2026-04-18
+
+graph TB
+    subgraph Root["/ (Root Layout)"]
+        Landing["/ <br/>Landing Page<br/>(Sprint 6)"]
+
+        subgraph AuthGroup["(auth) — Public Routes"]
+            SignIn["/sign-in<br/>Clerk Sign-In"]
+            SignUp["/sign-up<br/>Clerk Sign-Up"]
+            Onboarding["/onboarding<br/>Firm Setup Wizard<br/>(Sprint 5)"]
+        end
+
+        subgraph AuthenticatedGroup["(authenticated) — Protected Routes"]
+            subgraph DashboardRoute["/dashboard"]
+                Dashboard["Dashboard Home<br/>Summary stats, recent activity,<br/>Paste & Test form"]
+            end
+
+            subgraph QueueRoute["/queue"]
+                Queue["Review Queue<br/>Document list, filters, sorts<br/>(Sprint 3)"]
+            end
+
+            subgraph DocumentRoute["/documents/[documentId]"]
+                DocDetail["Document Detail<br/>Inline flags, side panel,<br/>keyboard shortcuts<br/>(Sprint 3)"]
+            end
+
+            subgraph AuditRoute["/audit"]
+                AuditExports["Audit Exports<br/>Export history, download,<br/>hash verification<br/>(Sprint 4)"]
+            end
+
+            subgraph FirmGroup["/firm — Firm Management"]
+                FirmUsers["/firm/users<br/>Team management<br/>(Sprint 4)"]
+                FirmAPIKeys["/firm/api-keys<br/>API key management<br/>(Sprint 4)"]
+                FirmSettings["/firm/settings<br/>Firm settings, Slack,<br/>retention<br/>(Sprint 4)"]
+                FirmBilling["/firm/billing<br/>Usage, invoices<br/>(Sprint 5)"]
+            end
+        end
+    end
+
+    subgraph Middleware["middleware.ts"]
+        ClerkMW["Clerk Middleware<br/>Route protection"]
+    end
+
+    subgraph SharedComponents["Shared Components"]
+        AppShell["AppShell<br/>Sidebar + Top bar"]
+        SeverityBadge["SeverityBadge<br/>CRITICAL/HIGH/MEDIUM/ADVISORY"]
+        EmptyState["EmptyState"]
+        PageHeader["PageHeader"]
+    end
+
+    ClerkMW --> AuthGroup
+    ClerkMW --> AuthenticatedGroup
+
+    AuthenticatedGroup --> AppShell
+    AppShell --> SeverityBadge
+    AppShell --> EmptyState
+    AppShell --> PageHeader
+
+    style AuthGroup fill:#e3f2fd
+    style AuthenticatedGroup fill:#f3e5f5
+    style FirmGroup fill:#fff3e0

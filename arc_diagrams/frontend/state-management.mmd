@@ -1,0 +1,93 @@
+%% CiteGuard V1 Frontend State Management Strategy
+%% Last updated by ADR-0001 on 2026-04-18
+
+flowchart TB
+    subgraph StateTypes["State Categories"]
+        direction TB
+        ServerState["Server State<br/>(Documents, Flags, Users, Firm)"]
+        URLState["URL State<br/>(Filters, Sort, Pagination)"]
+        AuthState["Auth State<br/>(User, Firm, Role)"]
+        UIState["Ephemeral UI State<br/>(Modals, Toasts, Focus)"]
+    end
+
+    subgraph ServerStateManagement["Server State → TanStack Query"]
+        TQ["TanStack Query<br/>(@tanstack/react-query)"]
+        DocQuery["useDocuments(filters)<br/>Queue list with polling"]
+        FlagQuery["useFlags(documentId)<br/>Flags for document detail"]
+        DocDetailQuery["useDocument(documentId)<br/>Single document with status"]
+        UserQuery["useUsers()<br/>Team member list"]
+        AnalyticsQuery["useAnalytics(period)<br/>Dashboard stats"]
+
+        Mutations["Mutations with Optimistic UI"]
+        ApproveFlag["useApproveFlag()"]
+        OverrideFlag["useOverrideFlag()"]
+        RejectFlag["useRejectFlag()"]
+        DeferFlag["useDeferFlag()"]
+        FinalizeDoc["useFinalizeDocument()"]
+    end
+
+    subgraph URLStateManagement["URL State → useSearchParams"]
+        URLParams["URL Search Params<br/>(shareable, bookmarkable)"]
+        SeverityFilter["?severity=CRITICAL,HIGH"]
+        StatusFilter["?status=pending,in_review"]
+        SubmitterFilter["?submitter=user_id"]
+        DateFilter["?from=2026-01-01&to=2026-04-18"]
+        SortParam["?sort=severity_desc"]
+        PageParam["?cursor=ulid_value"]
+    end
+
+    subgraph AuthStateManagement["Auth State → Clerk"]
+        ClerkProvider["ClerkProvider<br/>(@clerk/nextjs)"]
+        UseUser["useUser()<br/>Current user + firm_id + role"]
+        UseAuth["useAuth()<br/>Token for API calls"]
+    end
+
+    subgraph UIStateManagement["UI State → React useState / Context"]
+        ReactState["React useState<br/>(component-local)"]
+        ModalOpen["Modal open/close"]
+        ToastQueue["Toast notifications"]
+        FlagFocus["Current focused flag (J/K nav)"]
+        ShortcutOverlay["Shortcut help overlay (?)"]
+    end
+
+    subgraph NoGlobalState["NOT Used (Per Frontend Guidelines)"]
+        NoZustand["Zustand<br/>NOT needed in V1<br/>(no complex global state)"]
+        NoLocalStorage["localStorage<br/>NEVER for document content<br/>(privilege protection)"]
+        NoSessionStorage["sessionStorage<br/>NEVER for document content"]
+    end
+
+    ServerState --> TQ
+    TQ --> DocQuery
+    TQ --> FlagQuery
+    TQ --> DocDetailQuery
+    TQ --> UserQuery
+    TQ --> AnalyticsQuery
+    TQ --> Mutations
+    Mutations --> ApproveFlag
+    Mutations --> OverrideFlag
+    Mutations --> RejectFlag
+    Mutations --> DeferFlag
+    Mutations --> FinalizeDoc
+
+    URLState --> URLParams
+    URLParams --> SeverityFilter
+    URLParams --> StatusFilter
+    URLParams --> SubmitterFilter
+    URLParams --> DateFilter
+    URLParams --> SortParam
+    URLParams --> PageParam
+
+    AuthState --> ClerkProvider
+    ClerkProvider --> UseUser
+    ClerkProvider --> UseAuth
+
+    UIState --> ReactState
+    ReactState --> ModalOpen
+    ReactState --> ToastQueue
+    ReactState --> FlagFocus
+    ReactState --> ShortcutOverlay
+
+    style NoGlobalState fill:#ffebee
+    style NoZustand fill:#ffcdd2
+    style NoLocalStorage fill:#ffcdd2
+    style NoSessionStorage fill:#ffcdd2

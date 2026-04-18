@@ -1,0 +1,104 @@
+%% CiteGuard V1 Data Model (Entity-Relationship)
+%% Last updated by ADR-0002 on 2026-04-18
+
+erDiagram
+    firms {
+        uuid id PK
+        varchar name
+        timestamp created_at
+        varchar billing_email
+        varchar stripe_customer_id
+        jsonb settings
+    }
+
+    users {
+        uuid id PK
+        uuid firm_id FK
+        varchar email
+        enum role "admin | reviewer | submitter"
+        timestamp created_at
+        timestamp last_login
+        timestamp deleted_at
+    }
+
+    api_keys {
+        uuid id PK
+        uuid firm_id FK
+        varchar name
+        varchar key_hash "bcrypt"
+        uuid created_by FK
+        timestamp last_used_at
+        timestamp revoked_at
+    }
+
+    documents {
+        uuid id PK
+        uuid firm_id FK
+        uuid submitter_user_id FK
+        text text "large - privileged"
+        varchar document_type "brief | memo | contract | other"
+        varchar llm_provider
+        varchar llm_model
+        text prompt "nullable - privileged"
+        jsonb metadata "max 4KB"
+        enum status "pending | in_review | resolved"
+        timestamp submitted_at
+        timestamp resolved_at
+    }
+
+    flags {
+        uuid id PK
+        uuid document_id FK
+        enum evaluator "citation_existence | quote_verification | bluebook_format | judge_verification | temporal_validity"
+        enum severity "CRITICAL | HIGH | MEDIUM | ADVISORY"
+        text explanation
+        float confidence "0-1"
+        int start_offset
+        int end_offset
+        text suggested_correction
+        jsonb raw_evaluator_output
+        timestamp created_at
+    }
+
+    reviewer_actions {
+        uuid id PK
+        uuid flag_id FK
+        uuid user_id FK
+        enum action "approve | override | reject | defer"
+        text reason "required on override, min 10 chars"
+        timestamp created_at
+    }
+
+    audit_log {
+        ulid id PK "time-ordered"
+        uuid firm_id FK
+        uuid document_id FK "nullable"
+        enum event_type
+        uuid actor_user_id FK
+        jsonb payload
+        char64 prior_hash "SHA-256"
+        char64 this_hash "SHA-256"
+        timestamp created_at
+    }
+
+    exports {
+        uuid id PK
+        uuid document_id FK
+        uuid user_id FK
+        timestamp created_at
+        varchar pdf_path
+        varchar pdf_hash "SHA-256"
+    }
+
+    firms ||--o{ users : "has"
+    firms ||--o{ api_keys : "has"
+    firms ||--o{ documents : "has"
+    firms ||--o{ audit_log : "has"
+    users ||--o{ documents : "submits"
+    users ||--o{ reviewer_actions : "performs"
+    users ||--o{ api_keys : "creates"
+    documents ||--o{ flags : "has"
+    documents ||--o{ exports : "has"
+    documents ||--o{ audit_log : "references"
+    flags ||--o{ reviewer_actions : "has"
+    users ||--o{ exports : "generates"

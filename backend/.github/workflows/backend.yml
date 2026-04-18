@@ -1,0 +1,90 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [main]
+    paths: ["backend/**"]
+  pull_request:
+    branches: [main]
+    paths: ["backend/**"]
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  lint-and-type-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: Ruff check
+        run: ruff check .
+      - name: Ruff format check
+        run: ruff format --check .
+      - name: Mypy
+        run: mypy app/ --strict
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: citeguard_test
+          POSTGRES_USER: citeguard
+          POSTGRES_PASSWORD: citeguard
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: Run tests with coverage
+        run: pytest --cov=app --cov-report=xml --cov-fail-under=80
+        env:
+          DATABASE_URL: postgresql+asyncpg://citeguard:citeguard@localhost:5432/citeguard_test
+          REDIS_URL: redis://localhost:6379/0
+          APP_ENV: test
+
+  security-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for privileged data in logs
+        run: |
+          # Fail if document content is being logged (§5.1 compliance)
+          if grep -rn 'logger\.\(info\|debug\|warning\|error\).*\(document\.text\|doc\.text\|\.prompt\|\.completion\)' backend/app/; then
+            echo "FAIL: Found document content in log statements"
+            exit 1
+          fi
+          echo "PASS: No privileged data in log statements"
+      - name: Check for print statements
+        run: |
+          if grep -rn '^\s*print(' backend/app/; then
+            echo "FAIL: Found print statements in app code"
+            exit 1
+          fi
+          echo "PASS: No print statements"

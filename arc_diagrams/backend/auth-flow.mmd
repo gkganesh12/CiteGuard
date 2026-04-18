@@ -1,0 +1,78 @@
+%% CiteGuard Authentication & Authorization Flow
+%% Last updated by ADR-0006 on 2026-04-18
+
+flowchart TB
+    subgraph ClientTypes["Client Types"]
+        Browser["Web Browser<br/>(Dashboard)"]
+        SDKClient["SDK Client<br/>(Python / Node.js)"]
+        ProxyClient["LLM Proxy Client<br/>(Direct API)"]
+    end
+
+    subgraph WebAuth["Web Authentication (Clerk)"]
+        ClerkLogin["Clerk Sign-In<br/>Email/Password or Google OAuth"]
+        ClerkJWT["Clerk Issues JWT<br/>Claims: user_id, firm_id, role"]
+        JWKS["JWKS Endpoint<br/>Public key rotation"]
+    end
+
+    subgraph APIAuth["API Key Authentication"]
+        APIKey["API Key Header<br/>Authorization: Bearer cg_live_..."]
+        BCrypt["bcrypt Hash Comparison<br/>against stored key_hash"]
+        KeyLookup["Lookup firm_id + role<br/>from api_keys table"]
+    end
+
+    subgraph Middleware["FastAPI Middleware"]
+        ExtractAuth["Extract Auth<br/>JWT or API Key"]
+        VerifyJWT["Verify JWT<br/>via JWKS"]
+        VerifyKey["Verify API Key<br/>via bcrypt"]
+        GetUser["get_current_user<br/>dependency"]
+        CheckRole["require_role(role)<br/>dependency"]
+        ExtractFirm["Extract firm_id<br/>from verified credentials"]
+    end
+
+    subgraph RateLimit["Rate Limiting"]
+        DocLimit["Document Submission<br/>100 req/min/firm (burst 200)"]
+        AuthLimit["Auth Endpoints<br/>10 req/min/IP"]
+        RetryAfter["429 Too Many Requests<br/>+ Retry-After header"]
+    end
+
+    subgraph RBAC["Role-Based Access Control"]
+        Admin["Admin Role<br/>All permissions + billing,<br/>settings, user management"]
+        Reviewer["Reviewer Role<br/>Review flags, finalize docs,<br/>view all firm documents"]
+        Submitter["Submitter Role<br/>Submit docs, view own docs,<br/>cannot finalize"]
+    end
+
+    subgraph TenantScope["Tenant Isolation"]
+        FirmID["firm_id from session<br/>NEVER from request body"]
+        BaseRepo["BaseRepository<br/>firm_id required on all queries"]
+        Return404["Cross-tenant access<br/>returns 404 (not 403)"]
+    end
+
+    Browser --> ClerkLogin --> ClerkJWT
+    SDKClient --> APIKey
+    ProxyClient --> APIKey
+
+    ClerkJWT --> ExtractAuth
+    APIKey --> ExtractAuth
+
+    ExtractAuth --> VerifyJWT
+    ExtractAuth --> VerifyKey
+
+    VerifyJWT --> JWKS
+    VerifyKey --> BCrypt --> KeyLookup
+
+    VerifyJWT --> GetUser
+    KeyLookup --> GetUser
+
+    GetUser --> CheckRole
+    GetUser --> ExtractFirm
+
+    CheckRole --> Admin
+    CheckRole --> Reviewer
+    CheckRole --> Submitter
+
+    ExtractFirm --> FirmID --> BaseRepo --> Return404
+
+    GetUser --> DocLimit
+    GetUser --> AuthLimit
+    DocLimit -.-> RetryAfter
+    AuthLimit -.-> RetryAfter
